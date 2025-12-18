@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { 
   LayoutDashboard, GraduationCap, Globe, ClipboardList, BrainCircuit, 
-  CheckCircle2, Clock, AlertCircle, ChevronRight, Menu, X, User
+  CheckCircle2, Clock, AlertCircle, ChevronRight, Menu, X, User, Save, Share2, Download, Upload
 } from 'lucide-react';
 import { 
   INITIAL_STUDENT_PROFILE, 
@@ -17,15 +17,38 @@ import {
 import { AppSection, University, MaterialItem } from './types';
 import { analyzeProfile } from './geminiService';
 
+const STORAGE_KEY = 'xulang_application_data';
+
 const App: React.FC = () => {
   const [activeSection, setActiveSection] = useState<AppSection>(AppSection.OVERVIEW);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // State Initialization from LocalStorage or Constants
   const [profile] = useState(INITIAL_STUDENT_PROFILE);
-  const [zongping, setZongping] = useState(ZONGPING_UNIVERSITIES);
-  const [overseas, setOverseas] = useState(OVERSEAS_UNIVERSITIES);
-  const [materials, setMaterials] = useState(INITIAL_MATERIALS);
+  const [zongping, setZongping] = useState<University[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY + '_zongping');
+    return saved ? JSON.parse(saved) : ZONGPING_UNIVERSITIES;
+  });
+  const [overseas, setOverseas] = useState<University[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY + '_overseas');
+    return saved ? JSON.parse(saved) : OVERSEAS_UNIVERSITIES;
+  });
+  const [materials, setMaterials] = useState<MaterialItem[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY + '_materials');
+    return saved ? JSON.parse(saved) : INITIAL_MATERIALS;
+  });
+
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string>(new Date().toLocaleTimeString());
+
+  // Persistence Effects
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY + '_zongping', JSON.stringify(zongping));
+    localStorage.setItem(STORAGE_KEY + '_overseas', JSON.stringify(overseas));
+    localStorage.setItem(STORAGE_KEY + '_materials', JSON.stringify(materials));
+    setLastSaved(new Date().toLocaleTimeString());
+  }, [zongping, overseas, materials]);
 
   const scoreData = [
     { name: '语文', score: profile.scores.chinese, full: 150 },
@@ -44,12 +67,12 @@ const App: React.FC = () => {
 
   const progressStats = useMemo(() => {
     const allUnis = [...zongping, ...overseas];
-    const submitted = allUnis.filter(u => u.status === 'Submitted' || u.status === 'Interview' || u.status === 'Admitted').length;
+    const submitted = allUnis.filter(u => ['Submitted', 'Interview', 'Admitted'].includes(u.status)).length;
     const readyMaterials = materials.filter(m => m.status === 'Ready').length;
     
     return {
-      uniProgress: Math.round((submitted / allUnis.length) * 100),
-      materialProgress: Math.round((readyMaterials / materials.length) * 100)
+      uniProgress: Math.round((submitted / allUnis.length) * 100) || 0,
+      materialProgress: Math.round((readyMaterials / materials.length) * 100) || 0
     };
   }, [zongping, overseas, materials]);
 
@@ -68,11 +91,44 @@ const App: React.FC = () => {
   const toggleMaterial = (id: string) => {
     setMaterials(prev => prev.map(m => {
       if (m.id === id) {
-        const nextStatus: any = m.status === 'Ready' ? 'Pending' : (m.status === 'Pending' ? 'Not Started' : 'Ready');
+        const nextStatus: MaterialItem['status'] = m.status === 'Ready' ? 'Pending' : (m.status === 'Pending' ? 'Not Started' : 'Ready');
         return { ...m, status: nextStatus };
       }
       return m;
     }));
+  };
+
+  const exportData = () => {
+    const data = { zongping, overseas, materials, timestamp: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `徐朗申请进度_${new Date().toLocaleDateString()}.json`;
+    a.click();
+    alert('进度文件已导出，您可以将此文件发送给老师或家长进行导入同步。');
+  };
+
+  const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.zongping && data.overseas && data.materials) {
+          if (confirm('导入新进度将覆盖当前数据，确定吗？')) {
+            setZongping(data.zongping);
+            setOverseas(data.overseas);
+            setMaterials(data.materials);
+            alert('同步成功！');
+          }
+        }
+      } catch (err) {
+        alert('无效的进度文件。');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const renderOverview = () => (
@@ -262,44 +318,27 @@ const App: React.FC = () => {
           </div>
 
           <nav className="flex-1 px-3 py-4 space-y-1">
-            <NavItem 
-              icon={<LayoutDashboard />} 
-              label="总览看板" 
-              active={activeSection === AppSection.OVERVIEW} 
-              collapsed={!isSidebarOpen}
-              onClick={() => setActiveSection(AppSection.OVERVIEW)} 
-            />
-            <NavItem 
-              icon={<GraduationCap />} 
-              label="综合评价" 
-              active={activeSection === AppSection.ZONGPING} 
-              collapsed={!isSidebarOpen}
-              onClick={() => setActiveSection(AppSection.ZONGPING)} 
-            />
-            <NavItem 
-              icon={<Globe />} 
-              label="港澳新申请" 
-              active={activeSection === AppSection.OVERSEAS} 
-              collapsed={!isSidebarOpen}
-              onClick={() => setActiveSection(AppSection.OVERSEAS)} 
-            />
-            <NavItem 
-              icon={<ClipboardList />} 
-              label="材料准备" 
-              active={activeSection === AppSection.MATERIALS} 
-              collapsed={!isSidebarOpen}
-              onClick={() => setActiveSection(AppSection.MATERIALS)} 
-            />
-            <NavItem 
-              icon={<BrainCircuit />} 
-              label="AI 智能建议" 
-              active={activeSection === AppSection.AI_ADVISOR} 
-              collapsed={!isSidebarOpen}
-              onClick={() => setActiveSection(AppSection.AI_ADVISOR)} 
-            />
+            <NavItem icon={<LayoutDashboard />} label="总览看板" active={activeSection === AppSection.OVERVIEW} collapsed={!isSidebarOpen} onClick={() => setActiveSection(AppSection.OVERVIEW)} />
+            <NavItem icon={<GraduationCap />} label="综合评价" active={activeSection === AppSection.ZONGPING} collapsed={!isSidebarOpen} onClick={() => setActiveSection(AppSection.ZONGPING)} />
+            <NavItem icon={<Globe />} label="港澳新申请" active={activeSection === AppSection.OVERSEAS} collapsed={!isSidebarOpen} onClick={() => setActiveSection(AppSection.OVERSEAS)} />
+            <NavItem icon={<ClipboardList />} label="材料准备" active={activeSection === AppSection.MATERIALS} collapsed={!isSidebarOpen} onClick={() => setActiveSection(AppSection.MATERIALS)} />
+            <NavItem icon={<BrainCircuit />} label="AI 智能建议" active={activeSection === AppSection.AI_ADVISOR} collapsed={!isSidebarOpen} onClick={() => setActiveSection(AppSection.AI_ADVISOR)} />
           </nav>
 
-          <div className="p-4 border-t border-slate-100">
+          <div className="p-4 border-t border-slate-100 flex flex-col gap-2">
+             <div className="flex gap-2">
+                <button 
+                  onClick={exportData}
+                  title="导出进度"
+                  className="flex-1 flex items-center justify-center p-2 bg-slate-50 rounded-lg hover:bg-slate-100 text-slate-600"
+                >
+                  <Download size={18} />
+                </button>
+                <label className="flex-1 flex items-center justify-center p-2 bg-slate-50 rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer">
+                  <Upload size={18} />
+                  <input type="file" className="hidden" accept=".json" onChange={importData} />
+                </label>
+             </div>
              <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-slate-100 text-slate-500"
@@ -314,6 +353,10 @@ const App: React.FC = () => {
       <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64' : 'ml-20'} p-8`}>
         <header className="flex justify-between items-center mb-8">
           <div>
+            <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full w-fit mb-2">
+              <Save size={12} />
+              <span>已保存于 {lastSaved}</span>
+            </div>
             <h1 className="text-2xl font-bold text-slate-900">
               {activeSection === AppSection.OVERVIEW && '欢迎回来，徐朗'}
               {activeSection === AppSection.ZONGPING && '综合评价申请进度'}
@@ -326,10 +369,13 @@ const App: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center space-x-4">
-            <div className="bg-white p-2 rounded-full border border-slate-200 shadow-sm relative">
-              <div className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></div>
-              <AlertCircle className="w-5 h-5 text-slate-600" />
-            </div>
+            <button 
+              onClick={exportData}
+              className="flex items-center space-x-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <Share2 size={16} />
+              <span>同步进度</span>
+            </button>
             <div className="flex items-center space-x-3 bg-white p-1.5 pr-4 rounded-full border border-slate-200 shadow-sm cursor-pointer hover:bg-slate-50 transition-colors">
               <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-700 font-bold">
                 XL
